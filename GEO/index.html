@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mapa de Desastres Naturais</title>
+    <style>
+        body {
+            font-family: 'Poppins', Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f7fa;
+            color: #333;
+        }
+
+        h1 {
+            text-align: center;
+            margin: 20px 0;
+            color: #003366;
+            font-size: 2.5em;
+        }
+
+        .filters {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 15px;
+            background-color: #003366;
+            padding: 15px;
+            border-bottom: 4px solid #0099cc;
+            color: white;
+        }
+
+        .filters label {
+            font-weight: bold;
+        }
+
+        .filters select, .filters input[type="date"], .filters button {
+            padding: 10px;
+            border: none;
+            border-radius: 5px;
+            font-size: 1em;
+        }
+
+        .filters select, .filters input[type="date"] {
+            background-color: #f4f7fa;
+            color: #333;
+        }
+
+        .filters button {
+            background-color: #0099cc;
+            color: white;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+
+        .filters button:hover {
+            background-color: #0077a3;
+        }
+
+        #map {
+            height: 80vh;
+            width: 100%;
+            margin: 0;
+            border-top: 4px solid #0099cc;
+        }
+
+        footer {
+            text-align: center;
+            padding: 10px;
+            background-color: #003366;
+            color: white;
+            font-size: 0.9em;
+        }
+    </style>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
+</head>
+
+<body>
+    <h1>Desastres Naturais Recentes</h1>
+    <div class="filters">
+        <label for="disasterType">Filtrar por tipo:</label>
+        <select id="disasterType">
+            <option value="all">Todos</option>
+            <option value="earthquakes">Terremotos</option>
+            <option value="wildfires">Incêndios Florestais</option>
+            <option value="volcanoes">Erupções Vulcânicas</option>
+        </select>
+
+        <label for="startDate">Data inicial:</label>
+        <input type="date" id="startDate">
+
+        <label for="endDate">Data final:</label>
+        <input type="date" id="endDate">
+
+        <button id="applyFilter">Aplicar Filtro</button>
+    </div>
+    <div id="map"></div>
+
+    <footer>
+        &copy; 2024 Mapa de Desastres Naturais. Todos os direitos reservados ao Arthur legal, Arthur mais ou menos legal e ao lucas lucas.
+    </footer>
+
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
+
+    <script>
+        const map = L.map('map').setView([0, 0], 2);  
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 18,
+    attribution: '© OpenStreetMap'
+}).addTo(map);
+
+const bounds = L.latLngBounds(
+    L.latLng(-200, -360), 
+    L.latLng(200, 360)    
+);
+map.setMaxBounds(bounds);
+
+map.on('drag', function() {
+    map.panInsideBounds(bounds, { animate: false });
+});
+
+        const disasterTypeSelect = document.getElementById('disasterType');
+        const startDateInput = document.getElementById('startDate');
+        const endDateInput = document.getElementById('endDate');
+        const applyFilterButton = document.getElementById('applyFilter');
+        const markerClusterGroup = L.markerClusterGroup();
+        let markers = [];
+
+        map.addLayer(markerClusterGroup);
+
+        const today = new Date();
+        const twoWeeksAgo = new Date(today);
+        twoWeeksAgo.setDate(today.getDate() - 14);
+
+        startDateInput.value = twoWeeksAgo.toISOString().split('T')[0];
+        endDateInput.value = today.toISOString().split('T')[0];
+
+        function clearMarkers() {
+            markerClusterGroup.clearLayers();
+            markers = [];
+        }
+
+        async function fetchAndDisplayDisasters(type) {
+            const startDate = new Date(startDateInput.value).toISOString().split('T')[0];
+            const endDate = new Date(endDateInput.value).toISOString().split('T')[0];
+
+            clearMarkers();
+
+            if (type === 'earthquakes' || type === 'all') {
+                await fetchEarthquakes(startDate, endDate);
+            }
+            if (type === 'wildfires' || type === 'all') {
+                await fetchWildfires(startDate, endDate);
+            }
+            if (type === 'volcanoes' || type === 'all') {
+                await fetchVolcanoes(startDate, endDate);
+            }
+        }
+
+        async function fetchEarthquakes(startDate, endDate) {
+    try {
+        const formattedStartDate = new Date(startDate).toISOString().split('T')[0];
+        const formattedEndDate = new Date(endDate).toISOString().split('T')[0];
+
+        if (!formattedStartDate || !formattedEndDate) {
+            console.error("Datas inválidas para a requisição de terremotos.");
+            return;
+        }
+
+        const url = `https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&starttime=${formattedStartDate}&endtime=${formattedEndDate}&orderby=time&limit=1000`;
+
+        const response = await fetch(url);
+        if (!response.ok) {
+            console.error(`Erro ao buscar dados de terremotos: ${response.statusText}`);
+            return;
+        }
+
+        const data = await response.json();
+        const maxMarkers = 1000; 
+
+        data.features.slice(0, maxMarkers).forEach(feature => {
+            const { mag, place, time } = feature.properties;
+            const [longitude, latitude] = feature.geometry.coordinates;
+
+            const marker = L.marker([latitude, longitude], { icon: earthquakeIcon })
+                .bindPopup(`<strong>Terremoto</strong><br>${place}<br>Magnitude: ${mag}<br>${new Date(time).toLocaleString()}`);
+            markers.push(marker);
+            markerClusterGroup.addLayer(marker);
+        });
+    } catch (error) {
+        console.error("Erro ao buscar dados de terremotos:", error);
+    }
+}
+
+        async function fetchWildfires(startDate, endDate) {
+            try {
+                const response = await fetch('https://eonet.gsfc.nasa.gov/api/v3/events?category=wildfires');
+                const data = await response.json();
+                const maxMarkers = 1000; 
+
+                data.events.slice(0, maxMarkers).forEach(event => {
+                    const eventDate = new Date(event.geometry[0].date).toISOString().split('T')[0];
+                    if (eventDate >= startDate && eventDate <= endDate) {
+                        const [longitude, latitude] = event.geometry[0].coordinates;
+                        const marker = L.marker([latitude, longitude], { icon: wildfireIcon })
+                            .bindPopup(`<strong>Incêndio Florestal</strong><br>${event.title}`);
+                        markers.push(marker);
+                        markerClusterGroup.addLayer(marker);
+                    }
+                });
+            } catch (error) {
+                console.error("Erro ao buscar dados de incêndios:", error);
+            }
+        }
+
+        async function fetchVolcanoes(startDate, endDate) {
+    try {
+        
+        const response = await fetch('./eruptions.json');
+        const volcanoData = await response.json();
+
+        const maxMarkers = 1000; 
+
+        volcanoData.slice(0, maxMarkers).forEach(volcano => {
+            const {
+                "Volcano Name": name,
+                "Eruption Category": category,
+                "Start Year": startYear,
+                "Start Month": startMonth,
+                "Start Day": startDay,
+                Latitude: lat,
+                Longitude: lon
+            } = volcano;
+
+            const eruptionStart = new Date(
+                `${startYear}-${startMonth || '1'}-${startDay || '1'}`
+            );
+            const filterStartDate = new Date(startDate);
+            const filterEndDate = new Date(endDate);
+
+            if (eruptionStart >= filterStartDate && eruptionStart <= filterEndDate) {
+                const latitude = parseFloat(lat);
+                const longitude = parseFloat(lon);
+
+                if (!isNaN(latitude) && !isNaN(longitude)) {
+                    const marker = L.marker([latitude, longitude], { icon: volcanoIcon })
+                        .bindPopup(`<strong>Erupção Vulcânica</strong><br>
+                                    Nome: ${name}<br>
+                                    Categoria: ${category || 'Desconhecida'}<br>
+                                    Início: ${eruptionStart.toLocaleDateString()}`);
+                    markers.push(marker);
+                    markerClusterGroup.addLayer(marker);
+                }
+            }
+        });
+    } catch (error) {
+        console.error("Erro ao carregar ou processar os dados de erupções vulcânicas:", error);
+    }
+}
+
+        const earthquakeIcon = L.icon({
+            iconUrl: './images/terremoto.png',
+            iconSize: [32, 32]
+        });
+
+        const wildfireIcon = L.icon({
+            iconUrl: './images/incendio.png',
+            iconSize: [32, 32]
+        });
+
+        const volcanoIcon = L.icon({
+            iconUrl: './images/vulcao.png', 
+            iconSize: [32, 32]
+        });
+
+        applyFilterButton.addEventListener('click', () => {
+            const type = disasterTypeSelect.value;
+            fetchAndDisplayDisasters(type);
+        });
+
+        fetchAndDisplayDisasters('all');
+    </script>
+</body>
+
+</html>
